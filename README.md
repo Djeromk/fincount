@@ -1,4 +1,4 @@
-# Finsco — Personal Finance Advisor
+# Finsight — Personal Finance Advisor
 
 > ⚠️ Этот документ является черновым (draft). Архитектура и фичи будут уточняться по мере разработки.
 
@@ -11,7 +11,7 @@
 ### MoSCoW
 
 #### Must (MVP)
-- Регистрация / вход (Firebase Auth)
+- Регистрация / вход (Firebase Auth — Email/Password + Google OAuth + GitHub OAuth)
 - Добавление / редактирование / удаление транзакций
 - Категории (дефолтные + кастомные)
 - Dashboard с базовой аналитикой — баланс, доходы vs расходы за месяц
@@ -22,7 +22,6 @@
 - Инсайты — аномалии ("на кофе в 3 раза больше обычного")
 - Прогноз баланса на конец месяца
 - Фильтрация по периоду / категории
-- Mock Bank Integration (Adapter паттерн) — имитация подключения банковских счетов через детерминированный генератор транзакций
 
 #### Could
 - Финансовый health score
@@ -31,7 +30,7 @@
 
 #### Won't
 - Мобильное приложение
-- Реальные банковские API
+- Банковские интеграции любого рода — ни один банк не предоставляет API-доступ к счетам физических лиц
 - Мультивалютность
 
 ---
@@ -39,6 +38,12 @@
 ### User Stories
 
 ```
+Как пользователь я хочу зарегистрироваться через email/пароль
+чтобы не зависеть от сторонних аккаунтов
+
+Как пользователь я хочу войти через Google или GitHub
+чтобы не вводить пароль вручную
+
 Как пользователь я хочу добавить транзакцию
 чтобы фиксировать свои расходы и доходы
 
@@ -53,9 +58,6 @@
 
 Как пользователь я хочу видеть прогноз на конец месяца
 чтобы планировать траты заранее
-
-Как пользователь я хочу подключить банковский счёт
-чтобы транзакции подтягивались автоматически без ручного ввода
 ```
 
 ---
@@ -66,29 +68,7 @@
 |---|---|
 | Dashboard | Баланс, доходы/расходы, топ категорий, 2-3 инсайта |
 | Транзакции | Таблица с фильтрами, добавление через modal/drawer |
-| Настройки | Категории, правила автокатегоризации, подключённые счета |
-
----
-
-### Mock Bank Integration
-
-Фейковая интеграция с банками реализуется через паттерн **Adapter**:
-
-- **Bank Provider Registry** — список "поддерживаемых банков" с логотипами (JSON с метаданными)
-- **Mock OAuth Flow** — редирект на `/connect/[bank-id]`, имитация авторизации с дисклеймером
-- **Transaction Generator** — детерминированный генератор на основе `seed` (userId + bankId). Логика живёт в единственном API route — `/api/bank/sync`
-- **BankProvider Interface** — единый контракт для mock и будущих реальных провайдеров
-
-```ts
-interface BankProvider {
-  fetchTransactions(accountId: string, from: Date, to: Date): Promise<Transaction[]>
-  fetchBalance(accountId: string): Promise<Balance>
-  disconnect(accountId: string): Promise<void>
-}
-
-class MockBankProvider implements BankProvider { ... }
-class RealBankProvider implements BankProvider { ... } // в будущем
-```
+| Настройки | Категории, правила автокатегоризации |
 
 ---
 
@@ -101,20 +81,13 @@ users/{userId}
 ├── currency, createdAt
 └── управляется Firebase Auth
 
-accounts/{accountId}
-├── userId, bankId, name
-├── type: 'checking' | 'savings' | 'card'
-├── balance, currency
-├── provider: 'mock' | 'real'
-└── lastSyncedAt
-
 transactions/{transactionId}
-├── userId, accountId
+├── userId
 ├── amount, currency
 ├── type: 'income' | 'expense' | 'transfer'
 ├── description, date
 ├── categoryId (null = uncategorized)
-└── source: 'manual' | 'bank_sync'
+└── source: 'manual'
 
 categories/{categoryId}
 ├── userId, name, icon, color
@@ -137,7 +110,7 @@ Insight — не хранится в Firestore
 #### Категоризация
 - При создании транзакции — прогоняем через Rules по приоритету, берём первое совпадение
 - Если правил нет — `categoryId = null`, транзакция помечается как "uncategorized"
-- Ручное изменение категории не перезаписывается при следующем синке
+- Ручное изменение категории не перезаписывается повторной автокатегоризацией
 
 #### Инсайты (вычисляются на клиенте)
 - **Аномалия** — трата в категории превышает среднее за 3 месяца более чем на 50%
@@ -165,12 +138,8 @@ domain/
 │   └── defaults.ts              — дефолтные категории при регистрации
 ├── rule/
 │   └── CategorizationEngine.ts  — чистые функции, применение правил
-├── insight/
-│   └── InsightEngine.ts         — чистые функции, вычисление на клиенте
-└── bank/
-    ├── BankProvider.ts          — интерфейс (Adapter паттерн)
-    ├── MockBankProvider.ts      — seeded random реализация
-    └── BankProviderFactory.ts   — выбор провайдера по типу
+└── insight/
+    └── InsightEngine.ts         — чистые функции, вычисление на клиенте
 ```
 
 ---
@@ -179,7 +148,52 @@ domain/
 
 ### Принципы
 
-Это **фронтенд-проект** с минимальным бэкендом. Бэкенд = Firebase (Auth + Firestore + Security Rules) + один API route для Mock Bank sync. Вычисления на клиенте — инсайты, прогноз и агрегаты считаются через `useMemo` из данных React Query.
+Это **полностью фронтендовый проект** — нет ни одного серверного эндпоинта. Бэкенд = Firebase (Auth + Firestore + Security Rules). Все вычисления на клиенте.
+
+---
+
+### OAuth Flow
+
+Firebase Auth поддерживает OAuth провайдеры из коробки:
+
+```ts
+// shared/lib/auth.ts
+import {
+  GoogleAuthProvider,
+  GithubAuthProvider,
+  signInWithPopup,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+} from 'firebase/auth'
+
+const googleProvider = new GoogleAuthProvider()
+const githubProvider = new GithubAuthProvider()
+
+export const signInWithGoogle = () => signInWithPopup(auth, googleProvider)
+export const signInWithGithub = () => signInWithPopup(auth, githubProvider)
+export const signUpWithEmail  = (email: string, password: string) =>
+  createUserWithEmailAndPassword(auth, email, password)
+export const signInWithEmail  = (email: string, password: string) =>
+  signInWithEmailAndPassword(auth, email, password)
+```
+
+При первом входе — автоматически создаётся документ `users/{uid}` и дефолтные категории:
+
+```ts
+// features/auth/model/useAuthSync.ts
+export function useAuthSync() {
+  const [user] = useAuthState(auth)
+
+  useEffect(() => {
+    if (!user) return
+    UserService.ensureExists(user.uid, {
+      currency: 'RUB',
+      createdAt: new Date(),
+    })
+    CategoryService.createDefaults(user.uid)
+  }, [user])
+}
+```
 
 ---
 
@@ -207,17 +221,14 @@ export const queryKeys = {
   },
   categories: { all: (userId: string) => ['categories', userId] as const },
   rules:       { all: (userId: string) => ['rules', userId] as const },
-  accounts:    { all: (userId: string) => ['accounts', userId] as const },
 }
 ```
 
-Иерархия ключей позволяет инвалидировать `['transactions', userId]` и автоматически сбросить все вложенные фильтры.
-
 #### Optimistic Updates
 
-Применяются для добавления транзакции и смены категории. Паттерн: `onMutate` (optimistic update) → `onError` (rollback) → `onSettled` (invalidate).
+Применяются для добавления транзакции и смены категории. Паттерн: `onMutate` (optimistic) → `onError` (rollback) → `onSettled` (invalidate).
 
-Поскольку инсайты вычисляются через `useMemo` из данных React Query — они пересчитываются мгновенно вместе с optimistic update, без дополнительных запросов.
+Инсайты через `useMemo` пересчитываются мгновенно вместе с optimistic update.
 
 ---
 
@@ -226,10 +237,11 @@ export const queryKeys = {
 | Страница | Стратегия | Почему |
 |---|---|---|
 | `/dashboard` | SSR | персональные данные |
-| `/transactions` | SSR | фильтры в URL, данные user-specific |
+| `/transactions` | SSR | фильтры в URL, user-specific |
 | `/settings` | SSR | user-specific конфиг |
-| `/connect/[bankId]` | CSR | интерактивный OAuth flow |
-| `/api/bank/sync` | API Route | единственный серверный эндпоинт |
+| `/login` | CSR | OAuth popup, нет SEO |
+
+> Нет ни одного API route — проект полностью фронтендовый.
 
 ---
 
@@ -238,33 +250,28 @@ export const queryKeys = {
 ```
 src/
 ├── app/
-│   ├── (auth)/
-│   │   ├── login/page.tsx
-│   │   └── register/page.tsx
+│   ├── login/page.tsx
 │   ├── (dashboard)/
 │   │   ├── layout.tsx
 │   │   ├── page.tsx               — Dashboard
 │   │   ├── transactions/page.tsx
 │   │   └── settings/page.tsx
-│   ├── connect/[bankId]/page.tsx
-│   └── api/
-│       └── bank/sync/route.ts     — единственный API route
+│   └── middleware.ts              — protected routes
 │
 ├── domain/
 │   ├── transaction/
 │   ├── category/
 │   ├── rule/
-│   ├── insight/
-│   └── bank/
+│   └── insight/
 │
 ├── features/
+│   ├── auth/
+│   │   ├── ui/LoginForm.tsx       — Email/Password форма
+│   │   ├── ui/OAuthButtons.tsx    — Google + GitHub кнопки
+│   │   └── model/useAuthSync.ts   — создание user doc при первом входе
 │   ├── add-transaction/
-│   │   ├── ui/AddTransactionModal.tsx
-│   │   ├── model/useAddTransaction.ts
-│   │   └── api/mutations.ts
 │   ├── categorization/
-│   ├── insights/
-│   └── bank-connect/
+│   └── insights/
 │
 ├── widgets/
 │   ├── Dashboard/
@@ -274,6 +281,8 @@ src/
 └── shared/
     ├── ui/
     ├── lib/
+    │   ├── firebase.ts
+    │   ├── auth.ts
     │   └── queryKeys.ts
     ├── hooks/
     └── types/
@@ -286,12 +295,13 @@ src/
 | Слой | Технология | Причина |
 |---|---|---|
 | Framework | Next.js 14 (App Router) | SSR, файловый роутинг |
-| Auth + DB | Firebase (Auth + Firestore) | BaaS, Security Rules, бесплатный tier |
+| Auth | Firebase Auth (Email/Password + Google + GitHub OAuth) | все способы входа из коробки |
+| Database | Firestore | Security Rules, бесплатный tier |
 | Server state | React Query | кеширование, optimistic updates |
 | Client state | Zustand | минимальный, без бойлерплейта |
-| URL state | nuqs | type-safe searchParams для Next.js |
+| URL state | nuqs | type-safe searchParams |
 | Forms | React Hook Form + Zod | валидация на клиенте |
-| Charts | Recharts | легковесный (lazy import — SSR fix) |
+| Charts | Recharts | lazy import — `ssr: false` |
 | Styling | Tailwind + shadcn/ui | скорость разработки |
 | Hosting | Vercel | нативная интеграция с Next.js |
 
@@ -299,15 +309,17 @@ src/
 
 ## Этап 4 — UI/UX Wireframes [DRAFT]
 
-Три экрана MVP — Dashboard, Транзакции, Настройки. Wireframes зафиксированы в `wireframes.html`.
+Три экрана MVP зафиксированы в `wireframes.html`.
 
 ### Компонентная иерархия
 
-**Dashboard:** `StatCards` → `BarChart (Recharts)` → `DonutChart (Recharts)` → `InsightCard[]` → `BudgetProgress[]`
+**Login:** `LoginForm` (Email/Password) · `LoginButtons` (Google OAuth · GitHub OAuth) · `ForgotPasswordLink`
+
+**Dashboard:** `StatCards` → `BarChart` → `DonutChart` → `InsightCard[]` → `BudgetProgress[]`
 
 **Транзакции:** `FilterBar (nuqs)` → `SummaryCards` → `TransactionTable` → `Pagination`
 
-**Настройки:** `CategoryList` → `RuleList (drag & drop)` → `BankAccountList`
+**Настройки:** `CategoryList` → `RuleList (drag & drop)`
 
 ---
 
@@ -317,64 +329,71 @@ src/
 
 **Статус:** Принято
 
-**Решение:** Firebase (Auth + Firestore + Security Rules) как BaaS.
+**Решение:** Firebase (Auth + Firestore + Security Rules) как BaaS. Нет ни одного серверного эндпоинта — проект полностью фронтендовый.
 
 **Trade-offs:**
 - ✅ Минимум инфраструктуры, бесплатный tier
-- ✅ Security Rules снимают необходимость писать авторизацию в каждом запросе
-- ✅ Firebase SDK с типизацией через `withConverter`
-- ❌ Firestore — NoSQL, нет JOIN'ов, нужна денормализация
+- ✅ Security Rules — авторизация на уровне БД
+- ✅ OAuth провайдеры из коробки
+- ❌ Firestore NoSQL — нужна денормализация вместо JOIN
 - ❌ Vendor lock-in
-
-**Альтернативы отклонены:** Supabase (PostgreSQL) — реляционная БД удобнее для финансовых данных, но Firestore компенсирует это денормализацией и лучшей real-time поддержкой.
 
 ---
 
-### ADR-002: React Query для server state, Zustand только для UI
+### ADR-002: Email/Password + Google + GitHub OAuth
 
 **Статус:** Принято
 
-**Решение:** Строгое разделение — React Query владеет данными с Firebase, Zustand только UI state.
+**Контекст:** Нужно покрыть разные сценарии — пользователи без Google/GitHub аккаунта и те кто хочет войти быстро через OAuth.
+
+**Решение:** Три способа входа через Firebase Auth — Email/Password, Google OAuth и GitHub OAuth через `signInWithPopup`.
 
 **Trade-offs:**
-- ✅ Кеширование, дедупликация запросов, stale-while-revalidate
-- ✅ Optimistic updates через `onMutate / onError / onSettled`
+- ✅ Email/Password — универсально, не зависит от сторонних провайдеров
+- ✅ Google — самый распространённый OAuth провайдер
+- ✅ GitHub — релевантен для dev-аудитории портфолио
+- ✅ Firebase берёт на себя хранение хешей паролей и токенов
+- ❌ Email/Password требует экрана восстановления пароля — дополнительный UI
+- ❌ GitHub OAuth callback URL нужно настраивать отдельно для prod и localhost
+
+---
+
+### ADR-003: React Query для server state, Zustand только для UI
+
+**Статус:** Принято
+
+**Решение:** React Query владеет данными с Firebase, Zustand только UI state.
+
+**Trade-offs:**
+- ✅ Кеширование, optimistic updates из коробки
+- ✅ Zustand остаётся маленьким и предсказуемым
 - ❌ Два инструмента вместо одного
 
 ---
 
-### ADR-003: Инсайты вычисляются на клиенте
+### ADR-004: Инсайты вычисляются на клиенте
 
 **Статус:** Принято
 
-**Решение:** `InsightEngine` — чистые функции, вычисляются через `useMemo` из данных React Query.
+**Решение:** `InsightEngine` — чистые функции через `useMemo` из данных React Query.
 
 **Trade-offs:**
-- ✅ Нет дополнительных API запросов
-- ✅ Мгновенный пересчёт, включая optimistic updates
+- ✅ Нет API запросов, мгновенный пересчёт
 - ✅ Легко тестировать — чистые функции
-- ❌ При 10k+ транзакций может быть заметно — митигация: Web Worker
+- ❌ При 10k+ транзакций может тормозить — митигация: Web Worker
 
 ---
 
-### ADR-004: nuqs для URL state
+### ADR-005: nuqs для URL state
 
 **Статус:** Принято
 
-**Решение:** Фильтры транзакций живут в URL через nuqs.
+**Решение:** Фильтры транзакций (период, категория, тип) живут в URL.
 
 **Trade-offs:**
-- ✅ Фильтры сохраняются при перезагрузке, шарятся по ссылке
+- ✅ Фильтры сохраняются при перезагрузке и шарятся по ссылке
 - ✅ Кнопка "назад" работает ожидаемо
 - ✅ Type-safe
-
----
-
-### ADR-005: Adapter паттерн для банков
-
-**Статус:** Принято
-
-**Решение:** `BankProvider` интерфейс + `MockBankProvider` с seeded random. Замена на реальный провайдер — новый класс без изменения существующего кода (Open/Closed принцип).
 
 ---
 
@@ -396,15 +415,16 @@ src/
 
 - [ ] Инициализация Next.js 14 + TypeScript + Tailwind + shadcn/ui
 - [ ] Настройка Firebase (Auth, Firestore, Security Rules)
-- [ ] Структура папок — `domain / features / widgets / shared`
-- [ ] Firebase Auth — Email + Google OAuth
+- [ ] Структура папок
+- [ ] Firebase Auth — Email/Password + Google OAuth + GitHub OAuth
+- [ ] Экран логина — форма + OAuth кнопки + восстановление пароля
+- [ ] `useAuthSync` — создание user doc и дефолтных категорий при первом входе
 - [ ] Protected routes — middleware
 - [ ] Firestore схема + Security Rules
 - [ ] `TransactionService` — create, list
-- [ ] Базовая форма добавления транзакции
-- [ ] Дефолтные категории при регистрации
+- [ ] Базовая форма добавления транзакции (React Hook Form + Zod)
 
-**Done criteria:** авторизованный пользователь может добавить транзакцию и увидеть её в списке.
+**Done criteria:** пользователь входит через email/пароль или Google/GitHub, может добавить транзакцию и увидеть её в списке.
 
 ---
 
@@ -416,9 +436,9 @@ src/
 - [ ] Страница транзакций — таблица с пагинацией
 - [ ] Optimistic updates — добавление и смена категории
 - [ ] `CategorizationEngine` — чистые функции
-- [ ] Страница настроек — категории + правила с drag & drop
+- [ ] Страница настроек — категории + правила с drag & drop приоритетов
 
-**Done criteria:** таблица транзакций с фильтрами, URL сохраняет состояние, правила применяются.
+**Done criteria:** таблица с фильтрами, URL сохраняет состояние, правила применяются автоматически.
 
 ---
 
@@ -426,15 +446,11 @@ src/
 
 - [ ] `InsightEngine` — аномалии, паттерны, прогноз
 - [ ] Dashboard — stat cards, Recharts bar chart, donut
-- [ ] InsightCard компонент (3 типа)
+- [ ] InsightCard компонент (3 типа: anomaly / pattern / forecast)
 - [ ] Прогресс бюджета по категориям
-- [ ] `MockBankProvider` — seeded random
-- [ ] `BankProvider` интерфейс + `BankProviderFactory`
-- [ ] `/connect/[bankId]` — Mock OAuth flow
-- [ ] `/api/bank/sync` — API route
-- [ ] Страница настроек — подключённые счета
+- [ ] Recharts через `dynamic(() => import(...), { ssr: false })`
 
-**Done criteria:** Dashboard с инсайтами, Mock банк подключается и подтягивает транзакции.
+**Done criteria:** Dashboard показывает реальные инсайты из введённых транзакций.
 
 ---
 
@@ -442,11 +458,11 @@ src/
 
 - [ ] Error Boundaries на каждом слое
 - [ ] Loading states — skeleton везде
-- [ ] Empty states — первый запуск
+- [ ] Empty states — первый запуск без данных
 - [ ] Responsive — мобильная версия
-- [ ] Финальный README с ADR
+- [ ] Финальный README с ADR и архитектурной диаграммой
 - [ ] Деплой на Vercel
-- [ ] `docs/decisions/` — ADR файлы
+- [ ] `docs/decisions/` — ADR файлы в репозитории
 - [ ] Тесты — `InsightEngine` + `CategorizationEngine`
 
 **Done criteria:** проект задеплоен, README объясняет архитектуру, есть что показать на интервью.
@@ -460,7 +476,7 @@ src/
 | Firestore нет JOIN — нужна денормализация | Средняя | Спроектировать схему заранее, composite indexes |
 | nuqs конфликт с App Router | Низкая | Проверить совместимость в начале недели 2 |
 | Recharts на SSR | Средняя | `dynamic(() => import(...), { ssr: false })` |
-| Mock Bank данные нереалистичны | Низкая | `rand-seed` библиотека, тестировать отдельно |
+| GitHub OAuth callback URL на локале | Низкая | Добавить `localhost:3000` в GitHub OAuth app settings |
 
 ---
 
