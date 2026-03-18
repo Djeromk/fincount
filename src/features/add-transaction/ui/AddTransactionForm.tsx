@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { transactionSchema, TransactionFormData } from '../model/schema';
 import { TransactionService } from '@/domain/transaction/TransactionService';
 import { useState } from 'react';
+import { ArrowUpRight, ArrowDownLeft, Loader2 } from 'lucide-react';
 
 interface AddTransactionFormProps {
   userId: string;
@@ -63,19 +64,19 @@ export function AddTransactionForm({
   };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       {/* Type Toggle */}
       <div className="space-y-2">
-        <label className="block text-sm font-medium text-slate-300">Тип</label>
-        <div className="grid grid-cols-2 gap-2 p-1 rounded-lg bg-slate-900/50 border border-white/10">
+        <label className="text-sm font-medium text-foreground">Тип</label>
+        <div className="grid grid-cols-2 gap-2">
           <label
             className={`
-              flex items-center justify-center gap-2 px-4 py-2.5 rounded-md text-sm font-medium cursor-pointer
-              transition-all duration-200
+              flex cursor-pointer items-center justify-center gap-2 rounded-lg border px-4 py-3
+              text-sm font-medium transition-all
               ${
                 selectedType === 'expense'
-                  ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                  : 'text-slate-400 hover:text-slate-300'
+                  ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                  : 'border-input bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground'
               }
             `}
           >
@@ -85,19 +86,17 @@ export function AddTransactionForm({
               {...register('type')}
               className="sr-only"
             />
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 13l-5 5m0 0l-5-5m5 5V6" />
-            </svg>
-            Расход
+            <ArrowDownLeft className="h-4 w-4" />
+            <span>Расход</span>
           </label>
           <label
             className={`
-              flex items-center justify-center gap-2 px-4 py-2.5 rounded-md text-sm font-medium cursor-pointer
-              transition-all duration-200
+              flex cursor-pointer items-center justify-center gap-2 rounded-lg border px-4 py-3
+              text-sm font-medium transition-all
               ${
                 selectedType === 'income'
-                  ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                  : 'text-slate-400 hover:text-slate-300'
+                  ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                  : 'border-input bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground'
               }
             `}
           >
@@ -107,17 +106,15 @@ export function AddTransactionForm({
               {...register('type')}
               className="sr-only"
             />
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 11l5-5m0 0l5 5m-5-5v12" />
-            </svg>
-            Доход
+            <ArrowUpRight className="h-4 w-4" />
+            <span>Доход</span>
           </label>
         </div>
       </div>
 
       {/* Amount */}
       <div className="space-y-2">
-        <label htmlFor="amount" className="block text-sm font-medium text-slate-300">
+        <label htmlFor="amount" className="text-sm font-medium text-foreground">
           Сумма
         </label>
         <div className="relative">
@@ -126,101 +123,81 @@ export function AddTransactionForm({
             type="number"
             step="0.01"
             {...register('amount', { valueAsNumber: true })}
-            className="w-full px-4 py-3 rounded-lg bg-slate-900/50 border border-white/10 text-white
-                     placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50
-                     focus:border-violet-500/50 transition-all duration-200"
+            className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm
+                     text-foreground ring-offset-background file:border-0 file:bg-transparent
+                     file:text-sm file:font-medium placeholder:text-muted-foreground
+                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
+                     focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             placeholder="0.00"
           />
-          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">
+          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
             ₽
           </span>
         </div>
         {errors.amount && (
-          <p className="text-red-400 text-sm flex items-center gap-1">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            {errors.amount.message}
-          </p>
+          <p className="text-sm text-destructive">{errors.amount.message}</p>
         )}
       </div>
 
       {/* Description */}
       <div className="space-y-2">
-        <label htmlFor="description" className="block text-sm font-medium text-slate-300">
+        <label htmlFor="description" className="text-sm font-medium text-foreground">
           Описание
         </label>
         <input
           id="description"
           type="text"
           {...register('description')}
-          className="w-full px-4 py-3 rounded-lg bg-slate-900/50 border border-white/10 text-white
-                   placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50
-                   focus:border-violet-500/50 transition-all duration-200"
+          className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm
+                   text-foreground ring-offset-background file:border-0 file:bg-transparent
+                   file:text-sm file:font-medium placeholder:text-muted-foreground
+                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
+                   focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
           placeholder="Например: Покупка продуктов"
         />
         {errors.description && (
-          <p className="text-red-400 text-sm flex items-center gap-1">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            {errors.description.message}
-          </p>
+          <p className="text-sm text-destructive">{errors.description.message}</p>
         )}
       </div>
 
       {/* Category */}
       <div className="space-y-2">
-        <label htmlFor="categoryId" className="block text-sm font-medium text-slate-300">
+        <label htmlFor="categoryId" className="text-sm font-medium text-foreground">
           Категория
         </label>
-        <div className="relative">
-          <select
-            id="categoryId"
-            {...register('categoryId')}
-            className="w-full px-4 py-3 rounded-lg bg-slate-900/50 border border-white/10 text-white
-                     appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-violet-500/50
-                     focus:border-violet-500/50 transition-all duration-200"
-          >
-            <option value="" className="bg-slate-900">Без категории</option>
-            {filteredCategories.map((category) => (
-              <option key={category.id} value={category.id} className="bg-slate-900">
-                {category.name}
-              </option>
-            ))}
-          </select>
-          <svg
-            className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 pointer-events-none"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </div>
+        <select
+          id="categoryId"
+          {...register('categoryId')}
+          className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm
+                   text-foreground ring-offset-background focus-visible:outline-none
+                   focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
+                   disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <option value="">Без категории</option>
+          {filteredCategories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Date */}
       <div className="space-y-2">
-        <label htmlFor="date" className="block text-sm font-medium text-slate-300">
+        <label htmlFor="date" className="text-sm font-medium text-foreground">
           Дата
         </label>
         <input
           id="date"
           type="date"
           {...register('date', { valueAsDate: true })}
-          className="w-full px-4 py-3 rounded-lg bg-slate-900/50 border border-white/10 text-white
-                   focus:outline-none focus:ring-2 focus:ring-violet-500/50
-                   focus:border-violet-500/50 transition-all duration-200
-                   [color-scheme:dark]"
+          className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm
+                   text-foreground ring-offset-background focus-visible:outline-none
+                   focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
+                   disabled:cursor-not-allowed disabled:opacity-50"
         />
         {errors.date && (
-          <p className="text-red-400 text-sm flex items-center gap-1">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            {errors.date.message}
-          </p>
+          <p className="text-sm text-destructive">{errors.date.message}</p>
         )}
       </div>
 
@@ -228,23 +205,17 @@ export function AddTransactionForm({
       <button
         type="submit"
         disabled={isSubmitting}
-        className="w-full min-h-[44px] px-6 py-3 rounded-lg font-medium
-                 bg-gradient-to-r from-violet-600 to-fuchsia-600
-                 text-white shadow-lg shadow-violet-500/25
-                 hover:shadow-xl hover:shadow-violet-500/40
-                 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-slate-900
-                 disabled:opacity-50 disabled:cursor-not-allowed
-                 transition-all duration-200 active:scale-[0.98]
-                 disabled:hover:shadow-lg"
+        className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg
+                 bg-primary px-4 py-2 text-sm font-medium text-primary-foreground
+                 ring-offset-background transition-colors hover:bg-primary/90
+                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
+                 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
       >
         {isSubmitting ? (
-          <span className="flex items-center justify-center gap-2">
-            <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-            </svg>
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" />
             Создание...
-          </span>
+          </>
         ) : (
           'Добавить транзакцию'
         )}
